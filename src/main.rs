@@ -3,6 +3,13 @@ use std::{
     rc::{Rc, Weak},
 };
 
+#[derive(Debug)]
+enum SError {
+    ImproperList,
+}
+
+type SResult<T> = Result<T, SError>;
+
 type Cell = (Expr, Expr);
 
 #[derive(Debug, Clone)]
@@ -26,6 +33,30 @@ impl Expr {
     fn is_nil(&self) -> bool {
         matches!(self, Self::Nil)
     }
+
+    fn first(&self) -> SResult<Expr> {
+        match self {
+            Expr::Pair(h) => Ok((*h.get()).0.clone()),
+            _ => Err(SError::ImproperList),
+        }
+    }
+
+    fn rest(&self) -> SResult<Expr> {
+        match self {
+            Expr::Pair(h) => Ok((*h.get()).1.clone()),
+            _ => Err(SError::ImproperList),
+        }
+    }
+
+    fn first_rest(&self) -> SResult<(Expr, Expr)> {
+        match self {
+            Expr::Pair(h) => {
+                let pair = (*h.get()).clone();
+                Ok((pair.0, pair.1))
+            }
+            _ => Err(SError::ImproperList),
+        }
+    }
 }
 
 impl PartialEq for Expr {
@@ -39,13 +70,6 @@ impl PartialEq for Expr {
         }
     }
 }
-
-#[derive(Debug)]
-enum SError {
-    ImproperList,
-}
-
-type SResult<T> = Result<T, SError>;
 
 struct Heap {
     symbols: Expr,
