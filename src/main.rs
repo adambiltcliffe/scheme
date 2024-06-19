@@ -119,6 +119,10 @@ impl Heap {
         Ok(Expr::Symbol(new_symbol))
     }
 
+    fn make_env(&mut self, parent: Expr) -> SResult<Expr> {
+        self.make_cons(parent.clone(), Expr::Nil)
+    }
+
     fn format_expr_inner(&self, expr: &Expr, acc: &mut String) {
         match expr {
             Expr::Nil => acc.push_str("nil"),
