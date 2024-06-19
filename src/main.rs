@@ -34,8 +34,14 @@ impl Expr {
         matches!(self, Self::Nil)
     }
 
+    fn is_pair(&self) -> bool {
+        matches!(self, Self::Pair(_))
+    }
+
     fn first(&self) -> SResult<Expr> {
         match self {
+            // mostly this will just be a copy; only have to
+            // clone here in case it's another Pair
             Expr::Pair(h) => Ok((*h.get()).0.clone()),
             _ => Err(SError::ImproperList),
         }
@@ -94,9 +100,8 @@ impl Heap {
     fn make_symbol(&mut self, name: &str) -> SResult<Expr> {
         let mut s = self.symbols.clone();
         while !s.is_nil() {
-            if let Expr::Pair(ch) = s {
-                let pair = ch.get();
-                let (first, rest) = (*pair).clone();
+            if s.is_pair() {
+                let (first, rest) = s.first_rest()?;
                 if let Expr::Symbol(r) = first {
                     if Rc::deref(&r) == name {
                         return Ok(Expr::Symbol(Rc::clone(&r)));
