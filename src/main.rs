@@ -3,6 +3,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use slab::Slab;
+
 #[derive(Debug)]
 enum SError {
     ImproperList,
@@ -10,23 +12,17 @@ enum SError {
 
 type SResult<T> = Result<T, SError>;
 
-type Cell = (Expr, Expr);
+type ConsCell = (Expr, Expr);
 
-#[derive(Debug, Clone)]
-struct CellHandle(Weak<Cell>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ConsCellKey(usize);
 
-impl CellHandle {
-    fn get(&self) -> Rc<Cell> {
-        self.0.upgrade().expect("internal GC error")
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Expr {
     Nil,
     Integer(u64),
     Symbol(Rc<str>),
-    Pair(CellHandle),
+    Pair(ConsCellKey),
 }
 
 impl Expr {
@@ -37,71 +33,42 @@ impl Expr {
     fn is_pair(&self) -> bool {
         matches!(self, Self::Pair(_))
     }
-
-    fn first(&self) -> SResult<Expr> {
-        match self {
-            // mostly this will just be a copy; only have to
-            // clone here in case it's another Pair
-            Expr::Pair(h) => Ok((*h.get()).0.clone()),
-            _ => Err(SError::ImproperList),
-        }
-    }
-
-    fn rest(&self) -> SResult<Expr> {
-        match self {
-            Expr::Pair(h) => Ok((*h.get()).1.clone()),
-            _ => Err(SError::ImproperList),
-        }
-    }
-
-    fn first_rest(&self) -> SResult<(Expr, Expr)> {
-        match self {
-            Expr::Pair(h) => {
-                let pair = (*h.get()).clone();
-                Ok((pair.0, pair.1))
-            }
-            _ => Err(SError::ImproperList),
-        }
-    }
-}
-
-impl PartialEq for Expr {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Nil, Self::Nil) => true,
-            (Self::Integer(a), Self::Integer(b)) => a == b,
-            (Self::Symbol(a), Self::Symbol(b)) => Rc::ptr_eq(&a, &b),
-            (Self::Pair(a), Self::Pair(b)) => a.0.ptr_eq(&b.0),
-            _ => false,
-        }
-    }
 }
 
 struct Heap {
     symbols: Expr,
-    cells: Vec<Rc<(Expr, Expr)>>,
+    cells: Slab<ConsCell>,
 }
 
 impl Heap {
     fn new() -> Self {
         Self {
             symbols: Expr::Nil,
-            cells: Vec::new(),
+            cells: Slab::new(),
         }
     }
 
+    fn get_first_rest_by_key(&self, n: ConsCellKey) -> SResult<(Expr, Expr)> {
+        return Ok(self.cells.get(n.0).unwrap().clone());
+    }
+
+    fn get_first_rest(&self, expr: &Expr) -> SResult<(Expr, Expr)> {
+        if let Expr::Pair(k) = expr {
+            return self.get_first_rest_by_key(*k);
+        }
+        return Err(SError::ImproperList);
+    }
+
     fn make_cons(&mut self, first: Expr, rest: Expr) -> SResult<Expr> {
-        let cell = Rc::new((first, rest));
-        let handle = CellHandle(Rc::downgrade(&cell));
-        self.cells.push(cell);
-        Ok(Expr::Pair(handle))
+        let key = ConsCellKey(self.cells.insert((first, rest)));
+        Ok(Expr::Pair(key))
     }
 
     fn make_symbol(&mut self, name: &str) -> SResult<Expr> {
         let mut s = self.symbols.clone();
         while !s.is_nil() {
             if s.is_pair() {
-                let (first, rest) = s.first_rest()?;
+                let (first, rest) = self.get_first_rest(&s)?;
                 if let Expr::Symbol(r) = first {
                     if Rc::deref(&r) == name {
                         return Ok(Expr::Symbol(Rc::clone(&r)));
@@ -123,38 +90,38 @@ impl Heap {
         self.make_cons(parent.clone(), Expr::Nil)
     }
 
-    fn format_expr_inner(&self, expr: &Expr, acc: &mut String) {
-        match expr {
+    fn format_expr_inner(&self, expr: &Expr, acc: &mut String) -> SResult<()> {
+        Ok(match expr {
             Expr::Nil => acc.push_str("nil"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
-            Expr::Pair(h) => {
+            Expr::Pair(k) => {
                 acc.push_str("(");
-                let (mut first, mut rest) = (*h.get()).clone();
+                let (mut first, mut rest) = self.get_first_rest_by_key(*k)?;
                 loop {
-                    self.format_expr_inner(&first, acc);
+                    self.format_expr_inner(&first, acc)?;
                     match rest {
                         Expr::Nil => break,
-                        Expr::Pair(h) => {
+                        Expr::Pair(k) => {
                             acc.push_str(" ");
-                            (first, rest) = (*h.get()).clone()
+                            (first, rest) = self.get_first_rest_by_key(k)?;
                         }
                         _ => {
                             acc.push_str(" . ");
-                            self.format_expr_inner(&rest, acc);
+                            self.format_expr_inner(&rest, acc)?;
                             break;
                         }
                     }
                 }
                 acc.push_str(")");
             }
-        }
+        })
     }
 
-    fn format_expr(&self, expr: &Expr) -> String {
+    fn format_expr(&self, expr: &Expr) -> SResult<String> {
         let mut acc = String::new();
-        self.format_expr_inner(expr, &mut acc);
-        acc
+        self.format_expr_inner(expr, &mut acc)?;
+        Ok(acc)
     }
 }
 
@@ -170,6 +137,6 @@ fn main() {
     let data3 = heap.make_cons(Expr::Integer(3), Expr::Nil).unwrap();
     let data1 = heap.make_cons(Expr::Integer(4), data3).unwrap();
     let data2 = heap.make_cons(Expr::Integer(5), data1).unwrap();
-    println!("{}", heap.format_expr(&data2));
-    println!("{}", heap.format_expr(&heap.symbols));
+    println!("{}", heap.format_expr(&data2).unwrap());
+    println!("{}", heap.format_expr(&heap.symbols).unwrap());
 }
