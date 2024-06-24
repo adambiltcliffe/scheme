@@ -1,13 +1,27 @@
 use std::{
+    io::BufRead,
     ops::Deref,
     rc::{Rc, Weak},
 };
 
+use lexer::tokenize;
+use parser::parse_expr;
 use slab::Slab;
+
+mod lexer;
+mod parser;
 
 #[derive(Debug)]
 enum SError {
+    AmbiguousValue,
     ImproperList,
+    ImproperSymbol,
+    ImproperEnvironment,
+    UnboundSymbol,
+    UnexpectedEndOfInput,
+    UnknownForm,
+    UnmatchedBracket,
+    WrongNumberOfArgs,
 }
 
 type SResult<T> = Result<T, SError>;
@@ -33,6 +47,24 @@ impl Expr {
     fn is_pair(&self) -> bool {
         matches!(self, Self::Pair(_))
     }
+
+    fn is_symbol(&self) -> bool {
+        matches!(self, Self::Symbol(_))
+    }
+
+    fn is_specific_symbol(&self, s: &str) -> bool {
+        if let Expr::Symbol(sym) = self {
+            return sym.as_ref() == s;
+        }
+        false
+    }
+
+    fn key(&self) -> Option<ConsCellKey> {
+        if let Expr::Pair(k) = self {
+            return Some(*k);
+        }
+        None
+    }
 }
 
 struct Heap {
@@ -52,6 +84,19 @@ impl Heap {
         return Ok(self.cells.get(n.0).unwrap().clone());
     }
 
+    fn get_first_by_key(&self, n: ConsCellKey) -> SResult<(Expr)> {
+        return Ok(self.cells.get(n.0).unwrap().0.clone());
+    }
+
+    fn get_rest_by_key(&self, n: ConsCellKey) -> SResult<(Expr)> {
+        return Ok(self.cells.get(n.0).unwrap().1.clone());
+    }
+
+    fn set_rest_by_key(&mut self, n: ConsCellKey, v: Expr) -> SResult<()> {
+        self.cells.get_mut(n.0).unwrap().1 = v;
+        return Ok(());
+    }
+
     fn get_first_rest(&self, expr: &Expr) -> SResult<(Expr, Expr)> {
         if let Expr::Pair(k) = expr {
             return self.get_first_rest_by_key(*k);
@@ -59,9 +104,52 @@ impl Heap {
         return Err(SError::ImproperList);
     }
 
+    fn get_first(&self, expr: &Expr) -> SResult<Expr> {
+        if let Expr::Pair(k) = expr {
+            return self.get_first_by_key(*k);
+        }
+        return Err(SError::ImproperList);
+    }
+
+    fn get_rest(&self, expr: &Expr) -> SResult<Expr> {
+        if let Expr::Pair(k) = expr {
+            return self.get_rest_by_key(*k);
+        }
+        return Err(SError::ImproperList);
+    }
+
+    fn set_rest(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
+        if let Expr::Pair(k) = expr {
+            return self.set_rest_by_key(*k, v);
+        }
+        return Err(SError::ImproperList);
+    }
+
     fn make_cons(&mut self, first: Expr, rest: Expr) -> SResult<Expr> {
         let key = ConsCellKey(self.cells.insert((first, rest)));
         Ok(Expr::Pair(key))
+    }
+
+    fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
+        match expr {
+            Expr::Nil => Ok(true),
+            Expr::Pair(k) => {
+                let rest = self.get_rest_by_key(*k)?;
+                self.is_proper_list(&rest)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn test_length(&self, expr: &Expr, n: usize) -> SResult<bool> {
+        match expr {
+            Expr::Nil => Ok(n == 0),
+            Expr::Pair(k) => {
+                let rest = self.get_rest_by_key(*k)?;
+                self.test_length(&rest, n - 1)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn make_symbol(&mut self, name: &str) -> SResult<Expr> {
@@ -80,14 +168,110 @@ impl Heap {
             }
         }
         drop(s);
-        let new_symbol: Rc<str> = Rc::from(name);
+        let new_symbol: Rc<str> = Rc::from(name.to_ascii_uppercase());
         self.symbols =
             self.make_cons(Expr::Symbol(Rc::clone(&new_symbol)), self.symbols.clone())?;
         Ok(Expr::Symbol(new_symbol))
     }
 
-    fn make_env(&mut self, parent: Expr) -> SResult<Expr> {
+    fn make_env(&mut self, parent: &Expr) -> SResult<Expr> {
         self.make_cons(parent.clone(), Expr::Nil)
+    }
+
+    fn env_get(&self, env: &Expr, name: &Expr) -> SResult<Expr> {
+        if !env.is_pair() {
+            return Err(SError::ImproperEnvironment);
+        }
+        let (parent, bindings) = self.get_first_rest(env)?;
+        if let Expr::Symbol(s) = name {
+            let mut e = bindings.clone();
+            while !e.is_nil() {
+                if let Expr::Pair(k) = e {
+                    let (first, rest) = self.get_first_rest_by_key(k)?;
+                    if let Expr::Pair(b) = first {
+                        let (key, _) = self.get_first_rest_by_key(b)?;
+                        if key == *name {
+                            return self.get_rest_by_key(b);
+                        }
+                    }
+                    e = rest;
+                } else {
+                    return Err(SError::ImproperList);
+                }
+            }
+            if parent.is_nil() {
+                return Err(SError::UnboundSymbol);
+            } else if parent.is_pair() {
+                return self.env_get(&parent, name);
+            } else {
+                return Err(SError::ImproperEnvironment);
+            }
+        } else {
+            return Err(SError::ImproperSymbol);
+        }
+    }
+
+    fn env_set(&mut self, env: &Expr, name: &Expr, val: Expr) -> SResult<()> {
+        if !env.is_pair() {
+            return Err(SError::ImproperEnvironment);
+        }
+        let (_parent, bindings) = self.get_first_rest(env)?;
+        if let Expr::Symbol(s) = name {
+            let mut e = bindings.clone();
+            while !e.is_nil() {
+                if let Expr::Pair(k) = e {
+                    let (first, rest) = self.get_first_rest_by_key(k)?;
+                    if let Expr::Pair(b) = first {
+                        let (key, _) = self.get_first_rest_by_key(b)?;
+                        if key == *name {
+                            self.set_rest_by_key(b, val)?;
+                            return Ok(());
+                        }
+                    }
+                    e = rest;
+                } else {
+                    return Err(SError::ImproperList);
+                }
+            }
+            let new_pair = self.make_cons(name.clone(), val)?;
+            let new_bindings = self.make_cons(new_pair, bindings)?;
+            self.set_rest(env, new_bindings)?;
+            return Ok(());
+        } else {
+            return Err(SError::ImproperSymbol);
+        }
+    }
+
+    fn eval(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
+        match expr {
+            Expr::Nil | Expr::Integer(_) => Ok(expr.clone()),
+            Expr::Symbol(_) => self.env_get(env, expr),
+            Expr::Pair(k) => {
+                let first = self.get_first_by_key(*k)?;
+                if first.is_specific_symbol("QUOTE") {
+                    let args = self.get_rest_by_key(*k)?;
+                    if !self.test_length(&args, 1)? {
+                        return Err(SError::WrongNumberOfArgs);
+                    }
+                    return self.get_first(&args);
+                } else if first.is_specific_symbol("DEFINE") {
+                    let args = self.get_rest_by_key(*k)?;
+                    if !self.test_length(&args, 2)? {
+                        return Err(SError::WrongNumberOfArgs);
+                    }
+                    let sym = self.get_first(&args)?;
+                    let rexpr = self.get_first(&self.get_rest(&args)?)?;
+                    if !sym.is_symbol() {
+                        return Err(SError::ImproperSymbol);
+                    }
+                    let val = self.eval(env, &rexpr)?;
+                    self.env_set(env, &sym, val)?;
+                    return Ok(sym);
+                } else {
+                    return Err(SError::UnknownForm);
+                }
+            }
+        }
     }
 
     fn format_expr_inner(&self, expr: &Expr, acc: &mut String) -> SResult<()> {
@@ -131,6 +315,7 @@ fn main() {
     let sym2 = heap.make_symbol("apple").unwrap();
     let sym5 = heap.make_symbol("orange").unwrap();
     let sym3 = heap.make_symbol("apple").unwrap();
+    let sym6 = heap.make_symbol("peach").unwrap();
     println!("{:?} {:?} {:?}", sym1, sym2, sym3);
     let sym4 = Expr::Symbol(Rc::from("apple"));
     println!("{} {} -- {}", sym2 == sym3, sym2 == sym4, heap.cells.len());
@@ -139,4 +324,18 @@ fn main() {
     let data2 = heap.make_cons(Expr::Integer(5), data1).unwrap();
     println!("{}", heap.format_expr(&data2).unwrap());
     println!("{}", heap.format_expr(&heap.symbols).unwrap());
+    let e = heap.make_env(&Expr::Nil).unwrap();
+    heap.env_set(&e, &sym2, Expr::Integer(99)).unwrap();
+    heap.env_set(&e, &sym5, Expr::Integer(99)).unwrap();
+    heap.env_set(&e, &sym1, sym2).unwrap();
+    heap.env_set(&e, &sym5, Expr::Integer(98)).unwrap();
+    println!("{}", heap.format_expr(&e).unwrap());
+    let e2 = heap.make_env(&e).unwrap();
+    heap.env_set(&e, &sym6, Expr::Integer(50)).unwrap();
+    println!("{:?}", heap.env_get(&e2, &sym5).unwrap());
+    println!("{:?}", heap.env_get(&e2, &sym6).unwrap());
+    let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
+    let mut token_stream = tokenize(&line).into_iter();
+    let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
+    println!("{}", heap.format_expr(&expr).unwrap());
 }
