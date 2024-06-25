@@ -153,12 +153,13 @@ impl Heap {
     }
 
     fn make_symbol(&mut self, name: &str) -> SResult<Expr> {
+        let name = name.to_ascii_uppercase();
         let mut s = self.symbols.clone();
         while !s.is_nil() {
             if s.is_pair() {
                 let (first, rest) = self.get_first_rest(&s)?;
                 if let Expr::Symbol(r) = first {
-                    if Rc::deref(&r) == name {
+                    if Rc::deref(&r).eq(&name) {
                         return Ok(Expr::Symbol(Rc::clone(&r)));
                     }
                 }
@@ -168,7 +169,7 @@ impl Heap {
             }
         }
         drop(s);
-        let new_symbol: Rc<str> = Rc::from(name.to_ascii_uppercase());
+        let new_symbol: Rc<str> = Rc::from(name);
         self.symbols =
             self.make_cons(Expr::Symbol(Rc::clone(&new_symbol)), self.symbols.clone())?;
         Ok(Expr::Symbol(new_symbol))
@@ -307,6 +308,17 @@ impl Heap {
         self.format_expr_inner(expr, &mut acc)?;
         Ok(acc)
     }
+
+    fn dump(&self) -> SResult<()> {
+        for (k, _) in self.cells.iter() {
+            println!(
+                "cell {}: {}",
+                k,
+                self.format_expr(&Expr::Pair(ConsCellKey(k)))?
+            )
+        }
+        Ok(())
+    }
 }
 
 fn main() {
@@ -323,5 +335,6 @@ fn main() {
                 Err(e) => println!("err: {:?}", e),
             }
         }
+        heap.dump();
     }
 }
