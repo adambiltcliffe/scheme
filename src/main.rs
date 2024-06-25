@@ -276,7 +276,7 @@ impl Heap {
 
     fn format_expr_inner(&self, expr: &Expr, acc: &mut String) -> SResult<()> {
         Ok(match expr {
-            Expr::Nil => acc.push_str("nil"),
+            Expr::Nil => acc.push_str("()"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
             Expr::Pair(k) => {
@@ -311,31 +311,17 @@ impl Heap {
 
 fn main() {
     let mut heap = Heap::new();
-    let sym1 = heap.make_symbol("banana").unwrap();
-    let sym2 = heap.make_symbol("apple").unwrap();
-    let sym5 = heap.make_symbol("orange").unwrap();
-    let sym3 = heap.make_symbol("apple").unwrap();
-    let sym6 = heap.make_symbol("peach").unwrap();
-    println!("{:?} {:?} {:?}", sym1, sym2, sym3);
-    let sym4 = Expr::Symbol(Rc::from("apple"));
-    println!("{} {} -- {}", sym2 == sym3, sym2 == sym4, heap.cells.len());
-    let data3 = heap.make_cons(Expr::Integer(3), Expr::Nil).unwrap();
-    let data1 = heap.make_cons(Expr::Integer(4), data3).unwrap();
-    let data2 = heap.make_cons(Expr::Integer(5), data1).unwrap();
-    println!("{}", heap.format_expr(&data2).unwrap());
-    println!("{}", heap.format_expr(&heap.symbols).unwrap());
-    let e = heap.make_env(&Expr::Nil).unwrap();
-    heap.env_set(&e, &sym2, Expr::Integer(99)).unwrap();
-    heap.env_set(&e, &sym5, Expr::Integer(99)).unwrap();
-    heap.env_set(&e, &sym1, sym2).unwrap();
-    heap.env_set(&e, &sym5, Expr::Integer(98)).unwrap();
-    println!("{}", heap.format_expr(&e).unwrap());
-    let e2 = heap.make_env(&e).unwrap();
-    heap.env_set(&e, &sym6, Expr::Integer(50)).unwrap();
-    println!("{:?}", heap.env_get(&e2, &sym5).unwrap());
-    println!("{:?}", heap.env_get(&e2, &sym6).unwrap());
-    let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
-    let mut token_stream = tokenize(&line).into_iter();
-    let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
-    println!("{}", heap.format_expr(&expr).unwrap());
+    let env = heap.make_env(&Expr::Nil).unwrap();
+    loop {
+        let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
+        let mut token_stream = tokenize(&line).into_iter().peekable();
+        while token_stream.peek().is_some() {
+            let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
+            println!("in:  {}", heap.format_expr(&expr).unwrap());
+            match heap.eval(&env, &expr) {
+                Ok(result) => println!("out: {}", heap.format_expr(&result).unwrap()),
+                Err(e) => println!("err: {:?}", e),
+            }
+        }
+    }
 }

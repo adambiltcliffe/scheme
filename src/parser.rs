@@ -1,19 +1,20 @@
 use crate::lexer::Token;
 use crate::{Expr, Heap, SError, SResult};
+use std::iter::Peekable;
 
 pub(crate) fn parse_expr(
-    input: &mut impl Iterator<Item = Token>,
+    input: &mut Peekable<impl Iterator<Item = Token>>,
     heap: &mut Heap,
 ) -> Option<SResult<Expr>> {
     match input.next() {
         None => return None,
         Some(Token::Value(v)) => return Some(parse_value(&v, heap)),
         Some(Token::LBracket) => {
-            let mut p = input.peekable();
-            if let Some(Token::RBracket) = p.peek() {
+            if let Some(Token::RBracket) = input.peek() {
+                input.next().unwrap();
                 return Some(Ok(Expr::Nil));
             }
-            let first = match parse_expr(&mut p, heap) {
+            let first = match parse_expr(input, heap) {
                 Some(Ok(expr)) => expr,
                 Some(e @ Err(_)) => return Some(e),
                 None => return Some(Err(SError::UnexpectedEndOfInput)),
@@ -21,11 +22,11 @@ pub(crate) fn parse_expr(
             let result = heap.make_cons(first, Expr::Nil).unwrap();
             let mut tail_key = result.key().unwrap();
             loop {
-                if let Some(Token::RBracket) = p.peek() {
-                    // we have correctly consumed the bracket from the underlying iterator
+                if let Some(Token::RBracket) = input.peek() {
+                    input.next().unwrap();
                     return Some(Ok(result));
                 }
-                let next = match parse_expr(&mut p, heap) {
+                let next = match parse_expr(input, heap) {
                     Some(Ok(expr)) => expr,
                     Some(e @ Err(_)) => return Some(e),
                     None => return Some(Err(SError::UnexpectedEndOfInput)),
