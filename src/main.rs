@@ -1,8 +1,4 @@
-use std::{
-    io::BufRead,
-    ops::Deref,
-    rc::{Rc, Weak},
-};
+use std::{io::BufRead, ops::Deref, rc::Rc};
 
 use lexer::tokenize;
 use parser::parse_expr;
@@ -26,7 +22,7 @@ enum SError {
 
 type SResult<T> = Result<T, SError>;
 
-type ConsCell = (Expr, Expr);
+type ConsCell = (Expr, Expr, bool);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ConsCellKey(usize);
@@ -69,19 +65,25 @@ impl Expr {
 
 struct Heap {
     symbols: Expr,
+    root_env: Expr,
     cells: Slab<ConsCell>,
 }
 
 impl Heap {
     fn new() -> Self {
-        Self {
+        let mut me = Self {
             symbols: Expr::Nil,
+            root_env: Expr::Nil,
             cells: Slab::new(),
-        }
+        };
+        let env = me.make_env(&Expr::Nil).unwrap();
+        me.root_env = env;
+        me
     }
 
     fn get_first_rest_by_key(&self, n: ConsCellKey) -> SResult<(Expr, Expr)> {
-        return Ok(self.cells.get(n.0).unwrap().clone());
+        let cell = self.cells.get(n.0).unwrap().clone();
+        return Ok((cell.0, cell.1));
     }
 
     fn get_first_by_key(&self, n: ConsCellKey) -> SResult<(Expr)> {
@@ -126,7 +128,7 @@ impl Heap {
     }
 
     fn make_cons(&mut self, first: Expr, rest: Expr) -> SResult<Expr> {
-        let key = ConsCellKey(self.cells.insert((first, rest)));
+        let key = ConsCellKey(self.cells.insert((first, rest, false)));
         Ok(Expr::Pair(key))
     }
 
@@ -243,7 +245,12 @@ impl Heap {
         }
     }
 
-    fn eval(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
+    fn eval(&mut self, expr: &Expr) -> SResult<Expr> {
+        let env = self.root_env.clone();
+        self.eval_in(&env, expr)
+    }
+
+    fn eval_in(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
         match expr {
             Expr::Nil | Expr::Integer(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
@@ -265,7 +272,7 @@ impl Heap {
                     if !sym.is_symbol() {
                         return Err(SError::ImproperSymbol);
                     }
-                    let val = self.eval(env, &rexpr)?;
+                    let val = self.eval_in(env, &rexpr)?;
                     self.env_set(env, &sym, val)?;
                     return Ok(sym);
                 } else {
@@ -309,6 +316,24 @@ impl Heap {
         Ok(acc)
     }
 
+    fn collect(&mut self) {
+        for (_, c) in self.cells.iter_mut() {
+            c.2 = false;
+        }
+        let mut worklist = vec![self.symbols.clone(), self.root_env.clone()];
+        while let Some(ex) = worklist.pop() {
+            if let Expr::Pair(n) = ex {
+                let cell = self.cells.get_mut(n.0).unwrap();
+                if cell.2 == false {
+                    cell.2 = true;
+                    worklist.push(cell.0.clone());
+                    worklist.push(cell.1.clone());
+                }
+            }
+        }
+        self.cells.retain(|_, c| c.2);
+    }
+
     fn dump(&self) -> SResult<()> {
         for (k, _) in self.cells.iter() {
             println!(
@@ -323,18 +348,18 @@ impl Heap {
 
 fn main() {
     let mut heap = Heap::new();
-    let env = heap.make_env(&Expr::Nil).unwrap();
     loop {
         let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
         let mut token_stream = tokenize(&line).into_iter().peekable();
         while token_stream.peek().is_some() {
             let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
             println!("in:  {}", heap.format_expr(&expr).unwrap());
-            match heap.eval(&env, &expr) {
+            match heap.eval(&expr) {
                 Ok(result) => println!("out: {}", heap.format_expr(&result).unwrap()),
                 Err(e) => println!("err: {:?}", e),
             }
         }
-        heap.dump();
+        heap.collect();
+        //let _ = heap.dump();
     }
 }
