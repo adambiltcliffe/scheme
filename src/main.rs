@@ -14,6 +14,7 @@ enum SError {
     ImproperSymbol,
     ImproperEnvironment,
     UnboundSymbol,
+    UnexpectedDot,
     UnexpectedEndOfInput,
     UnknownForm,
     UnmatchedBracket,
