@@ -6,6 +6,7 @@ use slab::Slab;
 
 mod lexer;
 mod parser;
+mod primitive;
 
 #[derive(Debug)]
 enum SError {
