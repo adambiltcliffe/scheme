@@ -2,6 +2,7 @@ use std::{io::BufRead, ops::Deref, rc::Rc};
 
 use lexer::tokenize;
 use parser::parse_expr;
+use primitive::add_primitives;
 use slab::Slab;
 
 mod lexer;
@@ -26,8 +27,16 @@ type SResult<T> = Result<T, SError>;
 
 type ConsCell = (Expr, Expr, bool);
 
+type Native = fn(&Expr, &mut Heap) -> SResult<Expr>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ConsCellKey(usize);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PrimitiveDef {
+    name: String,
+    func: Native,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Expr {
@@ -35,6 +44,7 @@ enum Expr {
     Integer(u64),
     Symbol(Rc<str>),
     Pair(ConsCellKey),
+    Primitive(Rc<PrimitiveDef>),
 }
 
 impl Expr {
@@ -80,6 +90,7 @@ impl Heap {
         };
         let env = me.make_env(&Expr::Nil).unwrap();
         me.root_env = env;
+        add_primitives(&mut me).unwrap();
         me
     }
 
@@ -88,11 +99,11 @@ impl Heap {
         return Ok((cell.0, cell.1));
     }
 
-    fn get_first_by_key(&self, n: ConsCellKey) -> SResult<(Expr)> {
+    fn get_first_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
         return Ok(self.cells.get(n.0).unwrap().0.clone());
     }
 
-    fn get_rest_by_key(&self, n: ConsCellKey) -> SResult<(Expr)> {
+    fn get_rest_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
         return Ok(self.cells.get(n.0).unwrap().1.clone());
     }
 
@@ -188,7 +199,7 @@ impl Heap {
             return Err(SError::ImproperEnvironment);
         }
         let (parent, bindings) = self.get_first_rest(env)?;
-        if let Expr::Symbol(s) = name {
+        if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
                 if let Expr::Pair(k) = e {
@@ -221,7 +232,7 @@ impl Heap {
             return Err(SError::ImproperEnvironment);
         }
         let (_parent, bindings) = self.get_first_rest(env)?;
-        if let Expr::Symbol(s) = name {
+        if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
                 if let Expr::Pair(k) = e {
@@ -254,7 +265,7 @@ impl Heap {
 
     fn eval_in(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
         match expr {
-            Expr::Nil | Expr::Integer(_) => Ok(expr.clone()),
+            Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
             Expr::Pair(k) => {
                 let first = self.get_first_by_key(*k)?;
@@ -289,6 +300,7 @@ impl Heap {
             Expr::Nil => acc.push_str("()"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
+            Expr::Primitive(d) => acc.push_str(&format!("#<primitive {}>", d.name)),
             Expr::Pair(k) => {
                 acc.push_str("(");
                 let (mut first, mut rest) = self.get_first_rest_by_key(*k)?;
