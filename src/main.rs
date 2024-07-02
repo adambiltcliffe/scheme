@@ -15,6 +15,7 @@ enum SError {
     ImproperList,
     ImproperSymbol,
     ImproperEnvironment,
+    NotCallable,
     UnboundSymbol,
     UnexpectedDot,
     UnexpectedEndOfInput,
@@ -103,6 +104,11 @@ impl Heap {
         return Ok(self.cells.get(n.0).unwrap().0.clone());
     }
 
+    fn set_first_by_key(&mut self, n: ConsCellKey, v: Expr) -> SResult<()> {
+        self.cells.get_mut(n.0).unwrap().0 = v;
+        return Ok(());
+    }
+
     fn get_rest_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
         return Ok(self.cells.get(n.0).unwrap().1.clone());
     }
@@ -122,6 +128,13 @@ impl Heap {
     fn get_first(&self, expr: &Expr) -> SResult<Expr> {
         if let Expr::Pair(k) = expr {
             return self.get_first_by_key(*k);
+        }
+        return Err(SError::ImproperList);
+    }
+
+    fn set_first(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
+        if let Expr::Pair(k) = expr {
+            return self.set_first_by_key(*k, v);
         }
         return Err(SError::ImproperList);
     }
@@ -283,6 +296,14 @@ impl Heap {
         }
     }
 
+    fn apply(&mut self, op: &Expr, args: &Expr) -> SResult<Expr> {
+        if let Expr::Primitive(p) = op {
+            (p.func)(args, self)
+        } else {
+            Err(SError::NotCallable)
+        }
+    }
+
     fn eval(&mut self, expr: &Expr) -> SResult<Expr> {
         let env = self.root_env.clone();
         self.eval_in(&env, expr)
@@ -293,7 +314,7 @@ impl Heap {
             Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
             Expr::Pair(k) => {
-                let first = self.get_first_by_key(*k)?;
+                let (first, rest) = self.get_first_rest_by_key(*k)?;
                 if first.is_specific_symbol("QUOTE") {
                     let args = self.get_rest_by_key(*k)?;
                     if !self.test_length(&args, 1)? {
@@ -314,7 +335,16 @@ impl Heap {
                     self.env_set(env, &sym, val)?;
                     return Ok(sym);
                 } else {
-                    return Err(SError::UnknownForm);
+                    let op = self.eval_in(env, &first)?;
+                    let args = self.clone_list(&rest)?;
+                    let mut arg = args.clone();
+                    while !arg.is_nil() {
+                        let (first, rest) = self.get_first_rest(&arg)?;
+                        let v = self.eval_in(env, &first)?;
+                        self.set_first(&arg, v)?;
+                        arg = rest.clone();
+                    }
+                    return self.apply(&op, &args);
                 }
             }
         }
@@ -371,6 +401,7 @@ impl Heap {
             }
         }
         self.cells.retain(|_, c| c.2);
+        let n2 = self.cells.len();
     }
 
     fn dump(&self) -> SResult<()> {
