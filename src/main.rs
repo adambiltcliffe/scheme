@@ -145,6 +145,31 @@ impl Heap {
         Ok(Expr::Pair(key))
     }
 
+    fn clone_list(&mut self, list: &Expr) -> SResult<Expr> {
+        if list.is_nil() {
+            return Ok(Expr::Nil);
+        }
+        if let Expr::Pair(k) = list {
+            let (mut first, mut rest) = self.get_first_rest_by_key(*k)?;
+            let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
+            let mut tail_key = result.key().unwrap();
+            while !rest.is_nil() {
+                if let Expr::Pair(k) = rest {
+                    (first, rest) = self.get_first_rest_by_key(k)?;
+                    let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
+                    let new_tail_key = new_tail.key().unwrap();
+                    self.set_rest_by_key(tail_key, new_tail)?;
+                    tail_key = new_tail_key;
+                } else {
+                    return Err(SError::ImproperList);
+                }
+            }
+            return Ok(result);
+        } else {
+            return Err(SError::ImproperList);
+        }
+    }
+
     fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
         match expr {
             Expr::Nil => Ok(true),
