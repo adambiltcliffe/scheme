@@ -2,34 +2,34 @@ use std::rc::Rc;
 
 use crate::{Expr, Heap, Native, PrimitiveDef, SError, SResult};
 
-fn first(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
-    if !heap.test_length(args, 1)? {
-        return Err(SError::WrongNumberOfArgs);
+fn validate_arg_count(heap: &Heap, args: &Expr, n: usize) -> SResult<()> {
+    if !heap.test_length(args, n)? {
+        Err(SError::WrongNumberOfArgs)
+    } else {
+        Ok(())
     }
+}
+
+fn first(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
+    validate_arg_count(heap, args, 1)?;
     let arg = heap.get_first(args)?;
     heap.get_first(&arg)
 }
 
 fn rest(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
-    if !heap.test_length(args, 1)? {
-        return Err(SError::WrongNumberOfArgs);
-    }
+    validate_arg_count(heap, args, 1)?;
     let arg = heap.get_first(args)?;
     heap.get_rest(&arg)
 }
 
 fn list_p(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
-    if !heap.test_length(args, 1)? {
-        return Err(SError::WrongNumberOfArgs);
-    }
+    validate_arg_count(heap, args, 1)?;
     let arg = heap.get_first(args)?;
     Ok(Expr::Boolean(heap.is_proper_list(&arg)?))
 }
 
 fn cons(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
-    if !heap.test_length(args, 2)? {
-        return Err(SError::WrongNumberOfArgs);
-    }
+    validate_arg_count(heap, args, 2)?;
     let arg1 = heap.get_first(args)?;
     let arg2 = heap.get_first(&heap.get_rest(args)?)?;
     heap.make_cons(arg1, arg2)

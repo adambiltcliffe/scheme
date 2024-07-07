@@ -177,6 +177,8 @@ impl Heap {
     fn test_length(&self, expr: &Expr, n: usize) -> SResult<bool> {
         if expr.is_nil() {
             return Ok(n == 0);
+        } else if n == 0 {
+            return Ok(false);
         }
         let rest = self.get_rest(expr)?;
         self.test_length(&rest, n - 1)
