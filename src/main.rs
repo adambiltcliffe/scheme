@@ -139,7 +139,8 @@ impl Heap {
             return Ok(Expr::Nil);
         }
         let (mut first, mut rest) = self.get_first_rest(list)?;
-        let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
+        let val = func(self, &first)?;
+        let result = self.make_cons(val, Expr::Nil).unwrap();
         let mut result_tail = result.clone();
         while !rest.is_nil() {
             if rest.is_pair() {
@@ -268,6 +269,7 @@ impl Heap {
     }
 
     fn eval_in(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
+        println!("eval_in: {}", self.format_expr(expr)?);
         match expr {
             Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
@@ -294,14 +296,7 @@ impl Heap {
                     return Ok(sym);
                 } else {
                     let op = self.eval_in(env, &first)?;
-                    let args = self.clone_list(&rest)?;
-                    let mut arg = args.clone();
-                    while !arg.is_nil() {
-                        let (first, rest) = self.get_first_rest(&arg)?;
-                        let v = self.eval_in(env, &first)?;
-                        self.set_first(&arg, v)?;
-                        arg = rest.clone();
-                    }
+                    let args = self.map_list(&rest, |h, e| h.eval_in(env, e))?;
                     return self.apply(&op, &args);
                 }
             }
