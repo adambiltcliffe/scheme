@@ -62,9 +62,10 @@ impl Expr {
 
     fn is_specific_symbol(&self, s: &str) -> bool {
         if let Expr::Symbol(sym) = self {
-            return sym.as_ref() == s;
+            sym.as_ref() == s
+        } else {
+            false
         }
-        false
     }
 }
 
@@ -89,40 +90,45 @@ impl Heap {
 
     fn get_first_rest(&self, expr: &Expr) -> SResult<(Expr, Expr)> {
         if let Expr::Pair(k) = expr {
-            let cell = self.cells.get((*k).0).unwrap().clone();
-            return Ok((cell.0, cell.1));
+            let cell = self.cells.get((k).0).unwrap().clone();
+            Ok((cell.0, cell.1))
+        } else {
+            Err(SError::ImproperList)
         }
-        return Err(SError::ImproperList);
     }
 
     fn get_first(&self, expr: &Expr) -> SResult<Expr> {
         if let Expr::Pair(k) = expr {
-            return Ok(self.cells.get((*k).0).unwrap().0.clone());
+            Ok(self.cells.get((k).0).unwrap().0.clone())
+        } else {
+            Err(SError::ImproperList)
         }
-        return Err(SError::ImproperList);
     }
 
     fn set_first(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
         if let Expr::Pair(k) = expr {
-            self.cells.get_mut((*k).0).unwrap().0 = v;
-            return Ok(());
+            self.cells.get_mut((k).0).unwrap().0 = v;
+            Ok(())
+        } else {
+            Err(SError::ImproperList)
         }
-        return Err(SError::ImproperList);
     }
 
     fn get_rest(&self, expr: &Expr) -> SResult<Expr> {
         if let Expr::Pair(k) = expr {
-            return Ok(self.cells.get((*k).0).unwrap().1.clone());
+            Ok(self.cells.get((k).0).unwrap().1.clone())
+        } else {
+            Err(SError::ImproperList)
         }
-        return Err(SError::ImproperList);
     }
 
     fn set_rest(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
         if let Expr::Pair(k) = expr {
-            self.cells.get_mut((*k).0).unwrap().1 = v;
-            return Ok(());
+            self.cells.get_mut((k).0).unwrap().1 = v;
+            Ok(())
+        } else {
+            Err(SError::ImproperList)
         }
-        return Err(SError::ImproperList);
     }
 
     fn make_cons(&mut self, first: Expr, rest: Expr) -> SResult<Expr> {
@@ -153,11 +159,7 @@ impl Heap {
                 return Err(SError::ImproperList);
             }
         }
-        return Ok(result);
-    }
-
-    fn clone_list(&mut self, list: &Expr) -> SResult<Expr> {
-        self.map_list(list, |_, e| Ok(e.clone()))
+        Ok(result)
     }
 
     fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
@@ -217,14 +219,14 @@ impl Heap {
                 e = rest;
             }
             if parent.is_nil() {
-                return Err(SError::UnboundSymbol);
+                Err(SError::UnboundSymbol)
             } else if parent.is_pair() {
-                return self.env_get(&parent, name);
+                self.env_get(&parent, name)
             } else {
-                return Err(SError::ImproperEnvironment);
+                Err(SError::ImproperEnvironment)
             }
         } else {
-            return Err(SError::ImproperSymbol);
+            Err(SError::ImproperSymbol)
         }
     }
 
@@ -249,9 +251,9 @@ impl Heap {
             let new_pair = self.make_cons(name.clone(), val)?;
             let new_bindings = self.make_cons(new_pair, bindings)?;
             self.set_rest(env, new_bindings)?;
-            return Ok(());
+            Ok(())
         } else {
-            return Err(SError::ImproperSymbol);
+            Err(SError::ImproperSymbol)
         }
     }
 
@@ -274,13 +276,13 @@ impl Heap {
             Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
             Expr::Pair(_) => {
-                let (first, rest) = self.get_first_rest(&expr)?;
+                let (first, rest) = self.get_first_rest(expr)?;
                 if first.is_specific_symbol("QUOTE") {
                     let args = rest;
                     if !self.test_length(&args, 1)? {
                         return Err(SError::WrongNumberOfArgs);
                     }
-                    return self.get_first(&args);
+                    self.get_first(&args)
                 } else if first.is_specific_symbol("DEFINE") {
                     let args = rest;
                     if !self.test_length(&args, 2)? {
@@ -293,31 +295,31 @@ impl Heap {
                     }
                     let val = self.eval_in(env, &rexpr)?;
                     self.env_set(env, &sym, val)?;
-                    return Ok(sym);
+                    Ok(sym)
                 } else {
                     let op = self.eval_in(env, &first)?;
                     let args = self.map_list(&rest, |h, e| h.eval_in(env, e))?;
-                    return self.apply(&op, &args);
+                    self.apply(&op, &args)
                 }
             }
         }
     }
 
     fn format_expr_inner(&self, expr: &Expr, acc: &mut String) -> SResult<()> {
-        Ok(match expr {
+        match expr {
             Expr::Nil => acc.push_str("()"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
             Expr::Primitive(d) => acc.push_str(&format!("#<primitive {}>", d.name)),
             Expr::Pair(_) => {
-                acc.push_str("(");
+                acc.push('(');
                 let (mut first, mut rest) = self.get_first_rest(expr)?;
                 loop {
                     self.format_expr_inner(&first, acc)?;
                     match rest {
                         Expr::Nil => break,
                         Expr::Pair(_) => {
-                            acc.push_str(" ");
+                            acc.push(' ');
                             (first, rest) = self.get_first_rest(&rest)?;
                         }
                         _ => {
@@ -327,9 +329,10 @@ impl Heap {
                         }
                     }
                 }
-                acc.push_str(")");
+                acc.push(')');
             }
-        })
+        }
+        Ok(())
     }
 
     fn format_expr(&self, expr: &Expr) -> SResult<String> {
@@ -346,7 +349,7 @@ impl Heap {
         while let Some(ex) = worklist.pop() {
             if let Expr::Pair(n) = ex {
                 let cell = self.cells.get_mut(n.0).unwrap();
-                if cell.2 == false {
+                if !cell.2 {
                     cell.2 = true;
                     worklist.push(cell.0.clone());
                     worklist.push(cell.1.clone());
@@ -354,7 +357,6 @@ impl Heap {
             }
         }
         self.cells.retain(|_, c| c.2);
-        let n2 = self.cells.len();
     }
 
     fn dump(&self) -> SResult<()> {

@@ -7,9 +7,9 @@ pub(crate) fn parse_expr(
     heap: &mut Heap,
 ) -> Option<SResult<Expr>> {
     match input.next() {
-        None => return None,
-        Some(Token::Value(v)) => return Some(parse_value(&v, heap)),
-        Some(Token::Dot) => return Some(Err(SError::UnexpectedDot)),
+        None => None,
+        Some(Token::Value(v)) => Some(parse_value(&v, heap)),
+        Some(Token::Dot) => Some(Err(SError::UnexpectedDot)),
         Some(Token::LBracket) => {
             if let Some(Token::RBracket) = input.peek() {
                 input.next().unwrap();
@@ -51,16 +51,16 @@ pub(crate) fn parse_expr(
                 result_tail = new_tail;
             }
         }
-        Some(Token::RBracket) => return Some(Err(SError::UnmatchedBracket)),
+        Some(Token::RBracket) => Some(Err(SError::UnmatchedBracket)),
     }
 }
 
 fn parse_value(v: &str, heap: &mut Heap) -> SResult<Expr> {
-    if v.starts_with(|c| c >= '0' && c <= '9') {
+    if v.starts_with(|c: char| c.is_ascii_digit()) {
         match v.parse::<u64>() {
             Ok(n) => return Ok(Expr::Integer(n)),
             Err(_) => return Err(SError::AmbiguousValue),
         }
     }
-    return heap.make_symbol(v);
+    heap.make_symbol(v)
 }
