@@ -66,13 +66,6 @@ impl Expr {
         }
         false
     }
-
-    fn key(&self) -> Option<ConsCellKey> {
-        if let Expr::Pair(k) = self {
-            return Some(*k);
-        }
-        None
-    }
 }
 
 struct Heap {
@@ -94,24 +87,6 @@ impl Heap {
         me
     }
 
-    fn get_first_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
-        return Ok(self.cells.get(n.0).unwrap().0.clone());
-    }
-
-    fn set_first_by_key(&mut self, n: ConsCellKey, v: Expr) -> SResult<()> {
-        self.cells.get_mut(n.0).unwrap().0 = v;
-        return Ok(());
-    }
-
-    fn get_rest_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
-        return Ok(self.cells.get(n.0).unwrap().1.clone());
-    }
-
-    fn set_rest_by_key(&mut self, n: ConsCellKey, v: Expr) -> SResult<()> {
-        self.cells.get_mut(n.0).unwrap().1 = v;
-        return Ok(());
-    }
-
     fn get_first_rest(&self, expr: &Expr) -> SResult<(Expr, Expr)> {
         if let Expr::Pair(k) = expr {
             let cell = self.cells.get((*k).0).unwrap().clone();
@@ -122,28 +97,30 @@ impl Heap {
 
     fn get_first(&self, expr: &Expr) -> SResult<Expr> {
         if let Expr::Pair(k) = expr {
-            return self.get_first_by_key(*k);
+            return Ok(self.cells.get((*k).0).unwrap().0.clone());
         }
         return Err(SError::ImproperList);
     }
 
     fn set_first(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
         if let Expr::Pair(k) = expr {
-            return self.set_first_by_key(*k, v);
+            self.cells.get_mut((*k).0).unwrap().0 = v;
+            return Ok(());
         }
         return Err(SError::ImproperList);
     }
 
     fn get_rest(&self, expr: &Expr) -> SResult<Expr> {
         if let Expr::Pair(k) = expr {
-            return self.get_rest_by_key(*k);
+            return Ok(self.cells.get((*k).0).unwrap().1.clone());
         }
         return Err(SError::ImproperList);
     }
 
     fn set_rest(&mut self, expr: &Expr, v: Expr) -> SResult<()> {
         if let Expr::Pair(k) = expr {
-            return self.set_rest_by_key(*k, v);
+            self.cells.get_mut((*k).0).unwrap().1 = v;
+            return Ok(());
         }
         return Err(SError::ImproperList);
     }
@@ -160,14 +137,13 @@ impl Heap {
         if list.is_pair() {
             let (mut first, mut rest) = self.get_first_rest(list)?;
             let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
-            let mut tail_key = result.key().unwrap();
+            let mut result_tail = result.clone();
             while !rest.is_nil() {
                 if rest.is_pair() {
                     (first, rest) = self.get_first_rest(&rest)?;
                     let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
-                    let new_tail_key = new_tail.key().unwrap();
-                    self.set_rest_by_key(tail_key, new_tail)?;
-                    tail_key = new_tail_key;
+                    self.set_rest(&result_tail, new_tail.clone())?;
+                    result_tail = new_tail;
                 } else {
                     return Err(SError::ImproperList);
                 }
@@ -181,8 +157,8 @@ impl Heap {
     fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
         match expr {
             Expr::Nil => Ok(true),
-            Expr::Pair(k) => {
-                let rest = self.get_rest_by_key(*k)?;
+            Expr::Pair(_) => {
+                let rest = self.get_rest(expr)?;
                 self.is_proper_list(&rest)
             }
             _ => Ok(false),
@@ -192,8 +168,8 @@ impl Heap {
     fn test_length(&self, expr: &Expr, n: usize) -> SResult<bool> {
         match expr {
             Expr::Nil => Ok(n == 0),
-            Expr::Pair(k) => {
-                let rest = self.get_rest_by_key(*k)?;
+            Expr::Pair(_) => {
+                let rest = self.get_rest(expr)?;
                 self.test_length(&rest, n - 1)
             }
             _ => Ok(false),
@@ -358,7 +334,7 @@ impl Heap {
                     self.format_expr_inner(&first, acc)?;
                     match rest {
                         Expr::Nil => break,
-                        Expr::Pair(k) => {
+                        Expr::Pair(_) => {
                             acc.push_str(" ");
                             (first, rest) = self.get_first_rest(&rest)?;
                         }

@@ -21,7 +21,7 @@ pub(crate) fn parse_expr(
                 None => return Some(Err(SError::UnexpectedEndOfInput)),
             };
             let result = heap.make_cons(first, Expr::Nil).unwrap();
-            let mut tail_key = result.key().unwrap();
+            let mut result_tail = result.clone();
             loop {
                 let mut has_dot = false;
                 if let Some(Token::RBracket) = input.peek() {
@@ -38,7 +38,7 @@ pub(crate) fn parse_expr(
                     None => return Some(Err(SError::UnexpectedEndOfInput)),
                 };
                 if has_dot {
-                    heap.set_rest_by_key(tail_key, next).unwrap();
+                    heap.set_rest(&result_tail, next).unwrap();
                     if let Some(Token::RBracket) = input.peek() {
                         input.next().unwrap();
                         return Some(Ok(result));
@@ -47,9 +47,8 @@ pub(crate) fn parse_expr(
                     }
                 }
                 let new_tail = heap.make_cons(next, Expr::Nil).unwrap();
-                let new_tail_key = new_tail.key().unwrap();
-                heap.set_rest_by_key(tail_key, new_tail).unwrap();
-                tail_key = new_tail_key;
+                heap.set_rest(&result_tail, new_tail.clone()).unwrap();
+                result_tail = new_tail;
             }
         }
         Some(Token::RBracket) => return Some(Err(SError::UnmatchedBracket)),
