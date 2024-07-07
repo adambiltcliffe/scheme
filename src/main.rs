@@ -134,63 +134,49 @@ impl Heap {
         if list.is_nil() {
             return Ok(Expr::Nil);
         }
-        if list.is_pair() {
-            let (mut first, mut rest) = self.get_first_rest(list)?;
-            let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
-            let mut result_tail = result.clone();
-            while !rest.is_nil() {
-                if rest.is_pair() {
-                    (first, rest) = self.get_first_rest(&rest)?;
-                    let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
-                    self.set_rest(&result_tail, new_tail.clone())?;
-                    result_tail = new_tail;
-                } else {
-                    return Err(SError::ImproperList);
-                }
+        let (mut first, mut rest) = self.get_first_rest(list)?;
+        let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
+        let mut result_tail = result.clone();
+        while !rest.is_nil() {
+            if rest.is_pair() {
+                (first, rest) = self.get_first_rest(&rest)?;
+                let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
+                self.set_rest(&result_tail, new_tail.clone())?;
+                result_tail = new_tail;
+            } else {
+                return Err(SError::ImproperList);
             }
-            return Ok(result);
-        } else {
-            return Err(SError::ImproperList);
         }
+        return Ok(result);
     }
 
     fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
-        match expr {
-            Expr::Nil => Ok(true),
-            Expr::Pair(_) => {
-                let rest = self.get_rest(expr)?;
-                self.is_proper_list(&rest)
-            }
-            _ => Ok(false),
+        if expr.is_nil() {
+            return Ok(true);
         }
+        let rest = self.get_rest(expr)?;
+        self.is_proper_list(&rest)
     }
 
     fn test_length(&self, expr: &Expr, n: usize) -> SResult<bool> {
-        match expr {
-            Expr::Nil => Ok(n == 0),
-            Expr::Pair(_) => {
-                let rest = self.get_rest(expr)?;
-                self.test_length(&rest, n - 1)
-            }
-            _ => Ok(false),
+        if expr.is_nil() {
+            return Ok(n == 0);
         }
+        let rest = self.get_rest(expr)?;
+        self.test_length(&rest, n - 1)
     }
 
     fn make_symbol(&mut self, name: &str) -> SResult<Expr> {
         let name = name.to_ascii_uppercase();
         let mut s = self.symbols.clone();
         while !s.is_nil() {
-            if s.is_pair() {
-                let (first, rest) = self.get_first_rest(&s)?;
-                if let Expr::Symbol(r) = first {
-                    if Rc::deref(&r).eq(&name) {
-                        return Ok(Expr::Symbol(Rc::clone(&r)));
-                    }
+            let (first, rest) = self.get_first_rest(&s)?;
+            if let Expr::Symbol(r) = first {
+                if Rc::deref(&r).eq(&name) {
+                    return Ok(Expr::Symbol(Rc::clone(&r)));
                 }
-                s = rest;
-            } else {
-                return Err(SError::ImproperList);
             }
+            s = rest;
         }
         drop(s);
         let new_symbol: Rc<str> = Rc::from(name);
@@ -211,18 +197,14 @@ impl Heap {
         if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
-                if e.is_pair() {
-                    let (first, rest) = self.get_first_rest(&e)?;
-                    if first.is_pair() {
-                        let (key, _) = self.get_first_rest(&first)?;
-                        if key == *name {
-                            return self.get_rest(&first);
-                        }
+                let (first, rest) = self.get_first_rest(&e)?;
+                if first.is_pair() {
+                    let (key, _) = self.get_first_rest(&first)?;
+                    if key == *name {
+                        return self.get_rest(&first);
                     }
-                    e = rest;
-                } else {
-                    return Err(SError::ImproperList);
                 }
+                e = rest;
             }
             if parent.is_nil() {
                 return Err(SError::UnboundSymbol);
@@ -244,19 +226,15 @@ impl Heap {
         if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
-                if e.is_pair() {
-                    let (first, rest) = self.get_first_rest(&e)?;
-                    if first.is_pair() {
-                        let (key, _) = self.get_first_rest(&first)?;
-                        if key == *name {
-                            self.set_rest(&first, val)?;
-                            return Ok(());
-                        }
+                let (first, rest) = self.get_first_rest(&e)?;
+                if first.is_pair() {
+                    let (key, _) = self.get_first_rest(&first)?;
+                    if key == *name {
+                        self.set_rest(&first, val)?;
+                        return Ok(());
                     }
-                    e = rest;
-                } else {
-                    return Err(SError::ImproperList);
                 }
+                e = rest;
             }
             let new_pair = self.make_cons(name.clone(), val)?;
             let new_bindings = self.make_cons(new_pair, bindings)?;
