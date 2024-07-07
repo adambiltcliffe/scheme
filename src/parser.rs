@@ -1,49 +1,49 @@
 use crate::lexer::Token;
-use crate::{Expr, Heap, SError, SResult};
+use crate::{Expr, Heap};
 use std::iter::Peekable;
+
+#[derive(Debug)]
+pub enum ParseError {
+    AmbiguousValue,
+    UnexpectedDot,
+    UnexpectedEndOfInput,
+    UnmatchedBracket,
+}
 
 pub(crate) fn parse_expr(
     input: &mut Peekable<impl Iterator<Item = Token>>,
     heap: &mut Heap,
-) -> Option<SResult<Expr>> {
+) -> Result<Expr, ParseError> {
     match input.next() {
-        None => None,
-        Some(Token::Value(v)) => Some(parse_value(&v, heap)),
-        Some(Token::Dot) => Some(Err(SError::UnexpectedDot)),
+        None => Err(ParseError::UnexpectedEndOfInput),
+        Some(Token::Value(v)) => parse_value(&v, heap),
+        Some(Token::Dot) => Err(ParseError::UnexpectedDot),
         Some(Token::LBracket) => {
             if let Some(Token::RBracket) = input.peek() {
                 input.next().unwrap();
-                return Some(Ok(Expr::Nil));
+                return Ok(Expr::Nil);
             }
-            let first = match parse_expr(input, heap) {
-                Some(Ok(expr)) => expr,
-                Some(e @ Err(_)) => return Some(e),
-                None => return Some(Err(SError::UnexpectedEndOfInput)),
-            };
+            let first = parse_expr(input, heap)?;
             let result = heap.make_cons(first, Expr::Nil).unwrap();
             let mut result_tail = result.clone();
             loop {
                 let mut has_dot = false;
                 if let Some(Token::RBracket) = input.peek() {
                     input.next().unwrap();
-                    return Some(Ok(result));
+                    return Ok(result);
                 }
                 if let Some(Token::Dot) = input.peek() {
                     input.next().unwrap();
                     has_dot = true;
                 }
-                let next = match parse_expr(input, heap) {
-                    Some(Ok(expr)) => expr,
-                    Some(e @ Err(_)) => return Some(e),
-                    None => return Some(Err(SError::UnexpectedEndOfInput)),
-                };
+                let next = parse_expr(input, heap)?;
                 if has_dot {
                     heap.set_rest(&result_tail, next).unwrap();
                     if let Some(Token::RBracket) = input.peek() {
                         input.next().unwrap();
-                        return Some(Ok(result));
+                        return Ok(result);
                     } else {
-                        return Some(Err(SError::UnexpectedDot));
+                        return Err(ParseError::UnexpectedDot);
                     }
                 }
                 let new_tail = heap.make_cons(next, Expr::Nil).unwrap();
@@ -51,23 +51,23 @@ pub(crate) fn parse_expr(
                 result_tail = new_tail;
             }
         }
-        Some(Token::RBracket) => Some(Err(SError::UnmatchedBracket)),
+        Some(Token::RBracket) => Err(ParseError::UnmatchedBracket),
     }
 }
 
-fn parse_value(v: &str, heap: &mut Heap) -> SResult<Expr> {
+fn parse_value(v: &str, heap: &mut Heap) -> Result<Expr, ParseError> {
     if v.starts_with('#') {
         match v {
             "#f" => return Ok(Expr::Boolean(false)),
             "#t" => return Ok(Expr::Boolean(true)),
-            _ => return Err(SError::AmbiguousValue),
+            _ => return Err(ParseError::AmbiguousValue),
         }
     }
     if v.starts_with(|c: char| c.is_ascii_digit()) {
         match v.parse::<u64>() {
             Ok(n) => return Ok(Expr::Integer(n)),
-            Err(_) => return Err(SError::AmbiguousValue),
+            Err(_) => return Err(ParseError::AmbiguousValue),
         }
     }
-    heap.make_symbol(v)
+    Ok(heap.make_symbol(v).unwrap())
 }

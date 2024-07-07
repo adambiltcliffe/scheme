@@ -11,15 +11,11 @@ mod primitive;
 
 #[derive(Debug)]
 enum SError {
-    AmbiguousValue,
     ImproperList,
     ImproperSymbol,
     ImproperEnvironment,
     NotCallable,
     UnboundSymbol,
-    UnexpectedDot,
-    UnexpectedEndOfInput,
-    UnmatchedBracket,
     WrongNumberOfArgs,
 }
 
@@ -386,7 +382,7 @@ fn main() {
         let line = res.unwrap();
         let mut token_stream = tokenize(&line).into_iter().peekable();
         while token_stream.peek().is_some() {
-            let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
+            let expr = parse_expr(&mut token_stream, &mut heap).unwrap();
             println!("in:  {}", heap.format_expr(&expr).unwrap());
             match heap.eval(&expr) {
                 Ok(result) => println!("out: {}", heap.format_expr(&result).unwrap()),
