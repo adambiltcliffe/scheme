@@ -130,7 +130,11 @@ impl Heap {
         Ok(Expr::Pair(key))
     }
 
-    fn clone_list(&mut self, list: &Expr) -> SResult<Expr> {
+    fn map_list(
+        &mut self,
+        list: &Expr,
+        func: impl Fn(&mut Heap, &Expr) -> SResult<Expr>,
+    ) -> SResult<Expr> {
         if list.is_nil() {
             return Ok(Expr::Nil);
         }
@@ -140,7 +144,8 @@ impl Heap {
         while !rest.is_nil() {
             if rest.is_pair() {
                 (first, rest) = self.get_first_rest(&rest)?;
-                let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
+                let val = func(self, &first)?;
+                let new_tail = self.make_cons(val, Expr::Nil).unwrap();
                 self.set_rest(&result_tail, new_tail.clone())?;
                 result_tail = new_tail;
             } else {
@@ -148,6 +153,10 @@ impl Heap {
             }
         }
         return Ok(result);
+    }
+
+    fn clone_list(&mut self, list: &Expr) -> SResult<Expr> {
+        self.map_list(list, |_, e| Ok(e.clone()))
     }
 
     fn is_proper_list(&self, expr: &Expr) -> SResult<bool> {
