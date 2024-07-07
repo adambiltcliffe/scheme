@@ -19,7 +19,6 @@ enum SError {
     UnboundSymbol,
     UnexpectedDot,
     UnexpectedEndOfInput,
-    UnknownForm,
     UnmatchedBracket,
     WrongNumberOfArgs,
 }
@@ -95,11 +94,6 @@ impl Heap {
         me
     }
 
-    fn get_first_rest_by_key(&self, n: ConsCellKey) -> SResult<(Expr, Expr)> {
-        let cell = self.cells.get(n.0).unwrap().clone();
-        return Ok((cell.0, cell.1));
-    }
-
     fn get_first_by_key(&self, n: ConsCellKey) -> SResult<Expr> {
         return Ok(self.cells.get(n.0).unwrap().0.clone());
     }
@@ -120,7 +114,8 @@ impl Heap {
 
     fn get_first_rest(&self, expr: &Expr) -> SResult<(Expr, Expr)> {
         if let Expr::Pair(k) = expr {
-            return self.get_first_rest_by_key(*k);
+            let cell = self.cells.get((*k).0).unwrap().clone();
+            return Ok((cell.0, cell.1));
         }
         return Err(SError::ImproperList);
     }
@@ -162,13 +157,13 @@ impl Heap {
         if list.is_nil() {
             return Ok(Expr::Nil);
         }
-        if let Expr::Pair(k) = list {
-            let (mut first, mut rest) = self.get_first_rest_by_key(*k)?;
+        if list.is_pair() {
+            let (mut first, mut rest) = self.get_first_rest(list)?;
             let result = self.make_cons(first.clone(), Expr::Nil).unwrap();
             let mut tail_key = result.key().unwrap();
             while !rest.is_nil() {
-                if let Expr::Pair(k) = rest {
-                    (first, rest) = self.get_first_rest_by_key(k)?;
+                if rest.is_pair() {
+                    (first, rest) = self.get_first_rest(&rest)?;
                     let new_tail = self.make_cons(first.clone(), Expr::Nil).unwrap();
                     let new_tail_key = new_tail.key().unwrap();
                     self.set_rest_by_key(tail_key, new_tail)?;
@@ -240,12 +235,12 @@ impl Heap {
         if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
-                if let Expr::Pair(k) = e {
-                    let (first, rest) = self.get_first_rest_by_key(k)?;
-                    if let Expr::Pair(b) = first {
-                        let (key, _) = self.get_first_rest_by_key(b)?;
+                if e.is_pair() {
+                    let (first, rest) = self.get_first_rest(&e)?;
+                    if first.is_pair() {
+                        let (key, _) = self.get_first_rest(&first)?;
                         if key == *name {
-                            return self.get_rest_by_key(b);
+                            return self.get_rest(&first);
                         }
                     }
                     e = rest;
@@ -273,12 +268,12 @@ impl Heap {
         if let Expr::Symbol(_) = name {
             let mut e = bindings.clone();
             while !e.is_nil() {
-                if let Expr::Pair(k) = e {
-                    let (first, rest) = self.get_first_rest_by_key(k)?;
-                    if let Expr::Pair(b) = first {
-                        let (key, _) = self.get_first_rest_by_key(b)?;
+                if e.is_pair() {
+                    let (first, rest) = self.get_first_rest(&e)?;
+                    if first.is_pair() {
+                        let (key, _) = self.get_first_rest(&first)?;
                         if key == *name {
-                            self.set_rest_by_key(b, val)?;
+                            self.set_rest(&first, val)?;
                             return Ok(());
                         }
                     }
@@ -313,16 +308,16 @@ impl Heap {
         match expr {
             Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
-            Expr::Pair(k) => {
-                let (first, rest) = self.get_first_rest_by_key(*k)?;
+            Expr::Pair(_) => {
+                let (first, rest) = self.get_first_rest(&expr)?;
                 if first.is_specific_symbol("QUOTE") {
-                    let args = self.get_rest_by_key(*k)?;
+                    let args = rest;
                     if !self.test_length(&args, 1)? {
                         return Err(SError::WrongNumberOfArgs);
                     }
                     return self.get_first(&args);
                 } else if first.is_specific_symbol("DEFINE") {
-                    let args = self.get_rest_by_key(*k)?;
+                    let args = rest;
                     if !self.test_length(&args, 2)? {
                         return Err(SError::WrongNumberOfArgs);
                     }
@@ -356,16 +351,16 @@ impl Heap {
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
             Expr::Primitive(d) => acc.push_str(&format!("#<primitive {}>", d.name)),
-            Expr::Pair(k) => {
+            Expr::Pair(_) => {
                 acc.push_str("(");
-                let (mut first, mut rest) = self.get_first_rest_by_key(*k)?;
+                let (mut first, mut rest) = self.get_first_rest(expr)?;
                 loop {
                     self.format_expr_inner(&first, acc)?;
                     match rest {
                         Expr::Nil => break,
                         Expr::Pair(k) => {
                             acc.push_str(" ");
-                            (first, rest) = self.get_first_rest_by_key(k)?;
+                            (first, rest) = self.get_first_rest(&rest)?;
                         }
                         _ => {
                             acc.push_str(" . ");
@@ -418,8 +413,8 @@ impl Heap {
 
 fn main() {
     let mut heap = Heap::new();
-    loop {
-        let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
+    while let Some(res) = std::io::stdin().lock().lines().next() {
+        let line = res.unwrap();
         let mut token_stream = tokenize(&line).into_iter().peekable();
         while token_stream.peek().is_some() {
             let expr = parse_expr(&mut token_stream, &mut heap).unwrap().unwrap();
