@@ -56,6 +56,13 @@ pub(crate) fn parse_expr(
 }
 
 fn parse_value(v: &str, heap: &mut Heap) -> SResult<Expr> {
+    if v.starts_with('#') {
+        match v {
+            "#f" => return Ok(Expr::Boolean(false)),
+            "#t" => return Ok(Expr::Boolean(true)),
+            _ => return Err(SError::AmbiguousValue),
+        }
+    }
     if v.starts_with(|c: char| c.is_ascii_digit()) {
         match v.parse::<u64>() {
             Ok(n) => return Ok(Expr::Integer(n)),

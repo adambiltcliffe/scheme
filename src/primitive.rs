@@ -18,6 +18,14 @@ fn rest(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
     heap.get_rest(&arg)
 }
 
+fn list_p(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
+    if !heap.test_length(args, 1)? {
+        return Err(SError::WrongNumberOfArgs);
+    }
+    let arg = heap.get_first(args)?;
+    Ok(Expr::Boolean(heap.is_proper_list(&arg)?))
+}
+
 fn cons(args: &Expr, heap: &mut Heap) -> SResult<Expr> {
     if !heap.test_length(args, 2)? {
         return Err(SError::WrongNumberOfArgs);
@@ -44,6 +52,7 @@ fn add_primitive(heap: &mut Heap, name: &str, func: Native) -> SResult<()> {
 pub(crate) fn add_primitives(heap: &mut Heap) -> SResult<()> {
     add_primitive(heap, "first", first)?;
     add_primitive(heap, "rest", rest)?;
+    add_primitive(heap, "list?", list_p)?;
     add_primitive(heap, "cons", cons)?;
     Ok(())
 }

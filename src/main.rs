@@ -41,6 +41,7 @@ struct PrimitiveDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Expr {
     Nil,
+    Boolean(bool),
     Integer(u64),
     Symbol(Rc<str>),
     Pair(ConsCellKey),
@@ -166,6 +167,9 @@ impl Heap {
         if expr.is_nil() {
             return Ok(true);
         }
+        if !expr.is_pair() {
+            return Ok(false);
+        }
         let rest = self.get_rest(expr)?;
         self.is_proper_list(&rest)
     }
@@ -271,9 +275,10 @@ impl Heap {
     }
 
     fn eval_in(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
-        println!("eval_in: {}", self.format_expr(expr)?);
         match expr {
-            Expr::Nil | Expr::Integer(_) | Expr::Primitive(_) => Ok(expr.clone()),
+            Expr::Nil | Expr::Boolean(_) | Expr::Integer(_) | Expr::Primitive(_) => {
+                Ok(expr.clone())
+            }
             Expr::Symbol(_) => self.env_get(env, expr),
             Expr::Pair(_) => {
                 let (first, rest) = self.get_first_rest(expr)?;
@@ -308,6 +313,8 @@ impl Heap {
     fn format_expr_inner(&self, expr: &Expr, acc: &mut String) -> SResult<()> {
         match expr {
             Expr::Nil => acc.push_str("()"),
+            Expr::Boolean(false) => acc.push_str("#f"),
+            Expr::Boolean(true) => acc.push_str("#t"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
             Expr::Primitive(d) => acc.push_str(&format!("#<primitive {}>", d.name)),
