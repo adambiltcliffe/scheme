@@ -11,6 +11,7 @@ mod primitive;
 
 #[derive(Debug)]
 enum SError {
+    ImproperLambda,
     ImproperList,
     ImproperSymbol,
     ImproperEnvironment,
@@ -42,6 +43,7 @@ enum Expr {
     Integer(i64),
     Symbol(Rc<str>),
     Pair(ConsCellKey),
+    Closure(ConsCellKey),
     Primitive(Rc<PrimitiveDef>),
 }
 
@@ -129,6 +131,32 @@ impl Heap {
         }
     }
 
+    fn get_lambda_env(&self, expr: &Expr) -> SResult<Expr> {
+        if let Expr::Closure(k) = expr {
+            Ok(self.cells.get((k).0).unwrap().0.clone())
+        } else {
+            Err(SError::ImproperLambda)
+        }
+    }
+
+    fn get_lambda_args(&self, expr: &Expr) -> SResult<Expr> {
+        if let Expr::Closure(k) = expr {
+            let rest = self.cells.get((k).0).unwrap().1.clone();
+            self.get_first(&rest)
+        } else {
+            Err(SError::ImproperLambda)
+        }
+    }
+
+    fn get_lambda_body(&self, expr: &Expr) -> SResult<Expr> {
+        if let Expr::Closure(k) = expr {
+            let rest = self.cells.get((k).0).unwrap().1.clone();
+            self.get_rest(&rest)
+        } else {
+            Err(SError::ImproperLambda)
+        }
+    }
+
     fn make_cons(&mut self, first: Expr, rest: Expr) -> SResult<Expr> {
         let key = ConsCellKey(self.cells.insert((first, rest, false)));
         Ok(Expr::Pair(key))
@@ -198,6 +226,22 @@ impl Heap {
         self.symbols =
             self.make_cons(Expr::Symbol(Rc::clone(&new_symbol)), self.symbols.clone())?;
         Ok(Expr::Symbol(new_symbol))
+    }
+
+    fn make_closure(&mut self, env: Expr, arg_list: Expr, body: Expr) -> SResult<Expr> {
+        let mut v = arg_list.clone();
+        while !v.is_nil() {
+            if !self.get_first(&v)?.is_symbol() {
+                return Err(SError::ImproperSymbol);
+            }
+            v = self.get_rest(&v)?.clone();
+        }
+        let tail = self.make_cons(arg_list, body)?;
+        if let Expr::Pair(key) = self.make_cons(env, tail)? {
+            Ok(Expr::Closure(key))
+        } else {
+            unreachable!()
+        }
     }
 
     fn make_env(&mut self, parent: &Expr) -> SResult<Expr> {
@@ -275,9 +319,11 @@ impl Heap {
 
     fn eval_in(&mut self, env: &Expr, expr: &Expr) -> SResult<Expr> {
         match expr {
-            Expr::Nil | Expr::Boolean(_) | Expr::Integer(_) | Expr::Primitive(_) => {
-                Ok(expr.clone())
-            }
+            Expr::Nil
+            | Expr::Boolean(_)
+            | Expr::Integer(_)
+            | Expr::Closure(_)
+            | Expr::Primitive(_) => Ok(expr.clone()),
             Expr::Symbol(_) => self.env_get(env, expr),
             Expr::Pair(_) => {
                 let (first, rest) = self.get_first_rest(expr)?;
@@ -300,6 +346,14 @@ impl Heap {
                     let val = self.eval_in(env, &rexpr)?;
                     self.env_set(env, &sym, val)?;
                     Ok(sym)
+                } else if first.is_specific_symbol("LAMBDA") {
+                    let args = rest;
+                    if !self.test_length(&args, 2)? {
+                        return Err(SError::WrongNumberOfArgs);
+                    }
+                    let arg_list = self.get_first(&args)?;
+                    let body = self.get_first(&self.get_rest(&args)?)?;
+                    Ok(self.make_closure(env.clone(), arg_list, body)?)
                 } else {
                     let op = self.eval_in(env, &first)?;
                     let args = self.map_list(&rest, |h, e| h.eval_in(env, e))?;
@@ -316,6 +370,7 @@ impl Heap {
             Expr::Boolean(true) => acc.push_str("#t"),
             Expr::Integer(n) => acc.push_str(&n.to_string()),
             Expr::Symbol(s) => acc.push_str(s),
+            Expr::Closure(_) => acc.push_str("#<lambda>"),
             Expr::Primitive(d) => acc.push_str(&format!("#<primitive {}>", d.name)),
             Expr::Pair(_) => {
                 acc.push('(');
