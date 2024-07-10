@@ -15,6 +15,7 @@ enum SError {
     ImproperSymbol,
     ImproperEnvironment,
     NotCallable,
+    TypeError,
     UnboundSymbol,
     WrongNumberOfArgs,
 }
@@ -38,7 +39,7 @@ struct PrimitiveDef {
 enum Expr {
     Nil,
     Boolean(bool),
-    Integer(u64),
+    Integer(i64),
     Symbol(Rc<str>),
     Pair(ConsCellKey),
     Primitive(Rc<PrimitiveDef>),

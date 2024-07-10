@@ -63,10 +63,15 @@ fn parse_value(v: &str, heap: &mut Heap) -> Result<Expr, ParseError> {
             _ => return Err(ParseError::AmbiguousValue),
         }
     }
-    if v.starts_with(|c: char| c.is_ascii_digit()) {
-        match v.parse::<u64>() {
+    if v.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
+        match v.parse::<i64>() {
             Ok(n) => return Ok(Expr::Integer(n)),
-            Err(_) => return Err(ParseError::AmbiguousValue),
+            Err(_) => {
+                if v != "-" {
+                    // "-" alone is the symbol bound to the subtraction primitive
+                    return Err(ParseError::AmbiguousValue);
+                }
+            }
         }
     }
     Ok(heap.make_symbol(v).unwrap())
