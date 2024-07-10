@@ -307,6 +307,31 @@ impl Heap {
     fn apply(&mut self, op: &Expr, args: &Expr) -> SResult<Expr> {
         if let Expr::Primitive(p) = op {
             (p.func)(args, self)
+        } else if let Expr::Closure(_) = op {
+            let env = self.make_env(&self.get_lambda_env(op)?)?;
+            let mut param_list = self.get_lambda_args(op)?;
+            let mut arg_list = args.clone();
+            while !param_list.is_nil() {
+                if arg_list.is_nil() {
+                    return Err(SError::WrongNumberOfArgs);
+                }
+                let param = self.get_first(&param_list)?;
+                let arg = self.get_first(&arg_list)?;
+                self.env_set(&env, &param, arg)?;
+                param_list = self.get_rest(&param_list)?;
+                arg_list = self.get_rest(&arg_list)?;
+            }
+            if !arg_list.is_nil() {
+                return Err(SError::WrongNumberOfArgs);
+            }
+            let mut body = self.get_lambda_body(op)?;
+            let mut result = Expr::Nil;
+            while !body.is_nil() {
+                let form = self.get_first(&body)?;
+                result = self.eval_in(&env, &form)?;
+                body = self.get_rest(&body)?;
+            }
+            Ok(result)
         } else {
             Err(SError::NotCallable)
         }
@@ -352,7 +377,7 @@ impl Heap {
                         return Err(SError::WrongNumberOfArgs);
                     }
                     let arg_list = self.get_first(&args)?;
-                    let body = self.get_first(&self.get_rest(&args)?)?;
+                    let body = self.get_rest(&args)?;
                     Ok(self.make_closure(env.clone(), arg_list, body)?)
                 } else {
                     let op = self.eval_in(env, &first)?;
@@ -408,7 +433,7 @@ impl Heap {
         }
         let mut worklist = vec![self.symbols.clone(), self.root_env.clone()];
         while let Some(ex) = worklist.pop() {
-            if let Expr::Pair(n) = ex {
+            if let Expr::Pair(n) | Expr::Closure(n) = ex {
                 let cell = self.cells.get_mut(n.0).unwrap();
                 if !cell.2 {
                     cell.2 = true;
