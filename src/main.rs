@@ -60,6 +60,12 @@ impl Expr {
         matches!(self, Self::Symbol(_))
     }
 
+    fn is_truthy(&self) -> bool {
+        // #f is false
+        // everything else including 0 and () are true
+        !matches!(self, Self::Boolean(false))
+    }
+
     fn is_specific_symbol(&self, s: &str) -> bool {
         if let Expr::Symbol(sym) = self {
             sym.as_ref() == s
@@ -371,6 +377,20 @@ impl Heap {
                     let val = self.eval_in(env, &rexpr)?;
                     self.env_set(env, &sym, val)?;
                     Ok(sym)
+                } else if first.is_specific_symbol("IF") {
+                    let args = rest;
+                    if !self.test_length(&args, 3)? {
+                        return Err(SError::WrongNumberOfArgs);
+                    }
+                    let test_expr = self.get_first(&args)?;
+                    let true_expr = self.get_first(&self.get_rest(&args)?)?;
+                    let false_expr = self.get_first(&self.get_rest(&self.get_rest(&args)?)?)?;
+                    let t = self.eval_in(env, &test_expr)?;
+                    if t.is_truthy() {
+                        self.eval_in(env, &true_expr)
+                    } else {
+                        self.eval_in(env, &false_expr)
+                    }
                 } else if first.is_specific_symbol("LAMBDA") {
                     let args = rest;
                     if !self.test_length(&args, 2)? {
