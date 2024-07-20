@@ -2,6 +2,7 @@ pub(crate) enum Token {
     LBracket,
     RBracket,
     Dot,
+    Tick,
     Value(String),
 }
 
@@ -15,6 +16,7 @@ pub(crate) fn tokenize(input: &str) -> Vec<Token> {
             '(' => result.push(Token::LBracket),
             ')' => result.push(Token::RBracket),
             '.' => result.push(Token::Dot),
+            '\'' => result.push(Token::Tick),
             _ => {
                 let mut s = String::new();
                 s.push(ch);

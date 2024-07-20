@@ -18,6 +18,14 @@ pub(crate) fn parse_expr(
         None => Err(ParseError::UnexpectedEndOfInput),
         Some(Token::Value(v)) => parse_value(&v, heap),
         Some(Token::Dot) => Err(ParseError::UnexpectedDot),
+        Some(Token::Tick) => {
+            // for now we will assume that make_cons and make_symbol won't fail here
+            let q = heap.make_symbol("QUOTE").unwrap();
+            let inner = parse_expr(input, heap)?;
+            let c1 = heap.make_cons(inner, Expr::Nil).unwrap();
+            let c2 = heap.make_cons(q, c1).unwrap();
+            return Ok(c2);
+        }
         Some(Token::LBracket) => {
             if let Some(Token::RBracket) = input.peek() {
                 input.next().unwrap();
