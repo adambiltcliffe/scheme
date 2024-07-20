@@ -371,12 +371,21 @@ impl Heap {
                     }
                     let sym = self.get_first(&args)?;
                     let rexpr = self.get_first(&self.get_rest(&args)?)?;
-                    if !sym.is_symbol() {
+                    if sym.is_symbol() {
+                        let val = self.eval_in(env, &rexpr)?;
+                        self.env_set(env, &sym, val)?;
+                        Ok(sym)
+                    } else if sym.is_pair() {
+                        // (define (sum a b) (+ a b)) shorthand
+                        let name = self.get_first(&sym)?;
+                        let arg_list = self.get_rest(&sym)?;
+                        let body = self.get_rest(&args)?;
+                        let clo = self.make_closure(env.clone(), arg_list, body)?;
+                        self.env_set(env, &name, clo)?;
+                        Ok(name)
+                    } else {
                         return Err(SError::ImproperSymbol);
                     }
-                    let val = self.eval_in(env, &rexpr)?;
-                    self.env_set(env, &sym, val)?;
-                    Ok(sym)
                 } else if first.is_specific_symbol("IF") {
                     let args = rest;
                     if !self.test_length(&args, 3)? {
